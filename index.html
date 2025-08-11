@@ -119,7 +119,7 @@
             <button class="btn primary" id="rAplicar">Aplicar</button>
           </div>
         </div>
-        <div class="hint">Todos os números abaixo respeitam estes filtros.</div>
+        <div class="hint">KPIs e gráficos consideram somente categorias que participam do orçamento.</div>
       </div>
 
       <div class="grid cols-3" style="margin-top:16px">
@@ -205,7 +205,7 @@
           <ul class="hint" style="margin-top:0;line-height:1.6">
             <li>Lançamentos: <code>CXALANC</code> (DATA, DEBCRE, VALOR/VALCREDITO/VALDEBITO, TIPOCONTA, COMPLEMENTO, OBSERVACAO(S), CONTA)</li>
             <li>Contas: <code>CXACON</code> (CODIGO, DESCRICAO/NOME)</li>
-            <li>Tipos/Categorias: <code>TABTIPC</code> (CODIGO, DESCRICAO)</li>
+            <li>Tipos/Categorias: <code>TABTIPC</code> (CODIGO, DESCRICAO, PARTICIPAORCAMENTO)</li>
           </ul>
         </div>
       </div>
@@ -253,7 +253,7 @@
 
 <script>
 let DB=null, SQL=null;
-let lancamentos=[]; // {date, amount, signed, type, category, description, account}
+let lancamentos=[]; // {date, amount, signed, type, category, description, account, participaOrc}
 let charts={mensal:null,cat:null,contas:null};
 let catMode='debit'; // 'debit' | 'credit' | 'net'
 
@@ -279,7 +279,6 @@ document.querySelectorAll('.tab').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    btn.addEventListener
     btn.classList.add('active');
     document.getElementById(btn.dataset.target).classList.add('active');
     if(btn.dataset.target==='resumo'){ setTimeout(()=>{ charts.mensal?.resize(); charts.cat?.resize(); charts.contas?.resize(); }, 50); }
@@ -357,14 +356,16 @@ async function loadFromCxaSchema(){
       ) AS amount_abs,
       COALESCE(tt.DESCRICAO,'') AS categoria,
       TRIM(COALESCE(NULLIF(l.COMPLEMENTO,''), NULLIF(l.OBSERVACAO,''), NULLIF(l.OBSERVACOES,''), '')) AS descricao,
-      COALESCE(NULLIF(c.DESCRICAO,''), NULLIF(c.NOME,''), '') AS conta_nome
+      COALESCE(NULLIF(c.DESCRICAO,''), NULLIF(c.NOME,''), '') AS conta_nome,
+      UPPER(IFNULL(tt.PARTICIPAORCAMENTO,'')) AS participa_orc
     FROM CXALANC l
     LEFT JOIN TABTIPC tt ON tt.CODIGO=l.TIPOCONTA
     LEFT JOIN CXACON  c  ON c.CODIGO=l.CONTA
+    WHERE l.TIPOCONTA > 0                        -- ?? exclui transferências/ajustes
     ORDER BY l.DATA, l.CONTA, l.SEQUENCIAL;
   `;
   const res=DB.exec(sql);
-  if(!res.length||!res[0].values.length){ setStatus('Não encontrei lançamentos na CXALANC.'); return; }
+  if(!res.length||!res[0].values.length){ setStatus('Não encontrei lançamentos válidos na CXALANC (TIPOCONTA > 0).'); return; }
   const cols=res[0].columns.map(c=>c.toLowerCase());
   const ix=(n)=> cols.indexOf(n);
   const out=res[0].values.map(r=>{
@@ -376,11 +377,12 @@ async function loadFromCxaSchema(){
       type:(signed>=0?'credit':'debit'),
       category:String(r[ix('categoria')]||''),
       description:String(r[ix('descricao')]||''),
-      account:String(r[ix('conta_nome')]||'')
+      account:String(r[ix('conta_nome')]||''),
+      participaOrc:String(r[ix('participa_orc')]||'')  // 'F' = fora do orçamento
     };
   }).filter(x=>x.date && isFinite(x.signed));
   lancamentos=out.sort((a,b)=>a.date-b.date);
-  setStatus(`Importados ${lancamentos.length} lançamentos.`);
+  setStatus(`Importados ${lancamentos.length} lançamentos (TIPOCONTA > 0).`);
   refreshAll();
   document.querySelector('.tab[data-target="resumo"]').click();
 }
@@ -415,7 +417,9 @@ async function loadFromTable(table){
     if(t.includes('debit')||t.includes('desp')||amt<0) type='debit';
     if(t.includes('credit')||t.includes('rec')||amt>=0) type=(amt<0?'debit':'credit');
     const signed=(type==='credit'? +Math.abs(amt) : -Math.abs(amt));
-    return {date:d,amount:Math.abs(amt),signed,type:(signed>=0?'credit':'debit'),category:String(cat||''),description:String(desc||''),account:String(acc||'')};
+    return {date:d,amount:Math.abs(amt),signed,type:(signed>=0?'credit':'debit'),
+            category:String(cat||''),description:String(desc||''),account:String(acc||''),
+            participaOrc:'T'}; // genérico: considera no orçamento
   }).filter(Boolean).sort((a,b)=>a.date-b.date);
   setStatus(`Importados ${lancamentos.length} lançamentos.`);
   refreshAll();
@@ -461,25 +465,19 @@ function hydrateResumoFilters(){
   sel(rCategoria, cats, 'Categoria (todas)');
 }
 
+/* ------------------------ Funções de dados (Resumo) --------------------- */
 function getResumoData(){
+  // Base: aplica filtros de período/conta/categoria e toggles crédito/débito
   let data=[...lancamentos];
   if(rDataIni.value){ const di=new Date(rDataIni.value+'T00:00:00'); data=data.filter(l=> l.date>=di); }
   if(rDataFim.value){ const df=new Date(rDataFim.value+'T23:59:59'); data=data.filter(l=> l.date<=df); }
   if(rConta.value) data=data.filter(l=>(l.account?.trim()||'Sem conta')===rConta.value);
   if(rCategoria.value) data=data.filter(l=>(l.category?.trim()||'Sem categoria')===rCategoria.value);
   data=data.filter(l=> (rIncCred.checked && l.type==='credit') || (rIncDeb.checked && l.type==='debit'));
+  // Regra do usuário: no RESUMO considerar somente PARTICIPAORCAMENTO <> 'F'
+  data=data.filter(l=> (l.participaOrc||'') !== 'F');
   return data;
 }
-
-/* --------------------- Modo do gráfico por categoria -------------------- */
-const segCat=document.getElementById('segCatMode');
-segCat.addEventListener('click', (e)=>{
-  const btn=e.target.closest('.segbtn'); if(!btn) return;
-  segCat.querySelectorAll('.segbtn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  catMode=btn.dataset.mode; // 'debit'|'credit'|'net'
-  renderResumo();
-});
 
 /* ---------------------------- Atualizações UI --------------------------- */
 const tbody=document.querySelector('#tblLanc tbody');
@@ -666,10 +664,8 @@ function openTotalsModal(){
       </tr>`;
     }).join('');
 
-  const sumVal = (catMode==='net')
-      ? cats.reduce((s,k)=> s+totals[k], 0) // saldo líquido total (com sinal)
-      : cats.reduce((s,k)=> s+totals[k], 0);
-
+  const sumVal = cats.reduce((s,k)=> s + (catMode==='net'? totals[k] : totals[k]), 0);
+  document.getElementById('ttlCount').textContent = data.length;
   ttlSum.textContent = R$(sumVal);
 
   const sorted=[...data].sort((a,b)=> a.date-b.date);
@@ -733,19 +729,19 @@ function exportCSV(){
 (function seedExample(){
   const today=new Date(); const monthsBack=(n)=> new Date(today.getFullYear(), today.getMonth()-n, 10);
   const demo=[
-    {date:monthsBack(5),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
-    {date:monthsBack(5),amount:800,signed:-800,type:'debit',category:'Alimentação',description:'Supermercado',account:'Banco A'},
-    {date:monthsBack(4),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
-    {date:monthsBack(4),amount:1200,signed:-1200,type:'debit',category:'Moradia',description:'Aluguel',account:'Banco B'},
-    {date:monthsBack(4),amount:300,signed:-300,type:'debit',category:'Transporte',description:'Combustível',account:'Banco B'},
-    {date:monthsBack(3),amount:5200,signed:+5200,type:'credit',category:'Salário',description:'Salário (bônus)',account:'Banco A'},
-    {date:monthsBack(3),amount:950,signed:-950,type:'debit',category:'Alimentação',description:'Restaurantes',account:'Carteira'},
-    {date:monthsBack(2),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
-    {date:monthsBack(2),amount:200,signed:-200,type:'debit',category:'Saúde',description:'Farmácia',account:'Banco B'},
-    {date:monthsBack(1),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
-    {date:monthsBack(1),amount:1500,signed:-1500,type:'debit',category:'Educação',description:'Curso',account:'Banco B'},
-    {date:monthsBack(0),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
-    {date:monthsBack(0),amount:400,signed:-400,type:'debit',category:'Lazer',description:'Cinema/Shows',account:'Carteira'},
+    {date:monthsBack(5),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(5),amount:800,signed:-800,type:'debit',category:'Alimentação',description:'Supermercado',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(4),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(4),amount:1200,signed:-1200,type:'debit',category:'Moradia',description:'Aluguel',account:'Banco B',participaOrc:'T'},
+    {date:monthsBack(4),amount:300,signed:-300,type:'debit',category:'Transporte',description:'Combustível',account:'Banco B',participaOrc:'T'},
+    {date:monthsBack(3),amount:5200,signed:+5200,type:'credit',category:'Salário',description:'Salário (bônus)',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(3),amount:950,signed:-950,type:'debit',category:'Alimentação',description:'Restaurantes',account:'Carteira',participaOrc:'T'},
+    {date:monthsBack(2),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(2),amount:200,signed:-200,type:'debit',category:'Saúde',description:'Farmácia',account:'Banco B',participaOrc:'T'},
+    {date:monthsBack(1),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(1),amount:1500,signed:-1500,type:'debit',category:'Educação',description:'Curso',account:'Banco B',participaOrc:'T'},
+    {date:monthsBack(0),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A',participaOrc:'T'},
+    {date:monthsBack(0),amount:400,signed:-400,type:'debit',category:'Lazer',description:'Cinema/Shows',account:'Carteira',participaOrc:'T'},
   ];
   lancamentos=demo.sort((a,b)=>a.date-b.date);
   refreshAll();

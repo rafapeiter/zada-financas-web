@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zada Finanças — Resumo, Lançamentos, Menu</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+
+<style>
+  :root{
+    --bg:#0f172a; --panel:#111827; --panel-2:#161e2e;
+    --muted:#9ca3af; --text:#e5e7eb; --accent:#22c55e; --accent-2:#60a5fa;
+    --danger:#ef4444; --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+    background: radial-gradient(1200px 600px at 20% -10%, #1b2a44 0%, transparent 60%),
+                radial-gradient(900px 500px at 100% 0%, #1b3a2a 0%, transparent 60%), #0f172a;
+    color:var(--text);
+  }
+  .shell{max-width:1200px;margin:40px auto;padding:0 20px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+  .brand{display:flex;gap:12px;align-items:center}
+  .logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-2));
+        display:grid;place-items:center;color:white;font-weight:800;box-shadow:var(--shadow)}
+  .brand h1{font-size:1.1rem;margin:0}
+  nav{background:rgba(255,255,255,.05);padding:8px;border-radius:9999px;display:flex;gap:8px}
+  .tab{border:0;background:transparent;color:var(--text);padding:10px 16px;border-radius:9999px;cursor:pointer;transition:.2s;font-weight:600}
+  .tab.active{background:linear-gradient(135deg,var(--accent) 0%, var(--accent-2) 100%); color:#0b1323}
+  .grid{display:grid;gap:16px}
+  @media (min-width:900px){ .grid.cols-3{grid-template-columns:repeat(3,1fr)} .grid.cols-2{grid-template-columns:2fr 1fr} }
+  .card{
+    background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+    border:1px solid rgba(255,255,255,.06);
+    border-radius:var(--radius); padding:16px; box-shadow:var(--shadow); position:relative
+  }
+  .card h3{margin:0 0 8px 0; font-size:.95rem; color:var(--muted); font-weight:600}
+  .card .actions{position:absolute; top:12px; right:12px; display:flex; gap:8px; align-items:center}
+  .iconbtn{
+    border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.06);
+    color:var(--text); border-radius:10px; padding:6px 8px; cursor:pointer
+  }
+  .seg{display:inline-flex; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); border-radius:9999px; padding:3px}
+  .segbtn{border:0;background:transparent;color:var(--text);padding:6px 10px;border-radius:9999px;cursor:pointer;font-weight:600}
+  .segbtn.active{background:rgba(255,255,255,.2)}
+  .kpi{font-size:1.8rem;font-weight:800;margin:4px 0 0}
+  .kpi.positive{color:var(--accent)} .kpi.negative{color:var(--danger)}
+  .sub{color:var(--muted);font-size:.85rem}
+  .charts{display:grid;gap:16px}
+  @media (min-width:900px){ .charts{grid-template-columns:2fr 1fr} }
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+  .toolbar .group{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pillbtn{border:1px solid rgba(255,255,255,.25);background:transparent;padding:6px 10px;border-radius:9999px;color:var(--text);cursor:pointer}
+  .pillbtn.active,.pillbtn:hover{background:rgba(255,255,255,.1)}
+  .input, select, .btn{background:var(--panel-2);border:1px solid rgba(255,255,255,.08);
+    color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+  .btn{cursor:pointer;font-weight:700}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#0b1323;border:0}
+  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.2)}
+  .table{width:100%;border-collapse:collapse;overflow:hidden;border-radius:12px}
+  .table th,.table td{padding:12px;border-bottom:1px solid rgba(255,255,255,.06);text-align:left}
+  .view{display:none} .view.active{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:.3;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .drop{border:2px dashed rgba(255,255,255,.2);border-radius:16px;padding:24px;text-align:center;cursor:pointer}
+  .hint{color:var(--muted);font-size:.9rem}
+
+  /* Modal (sólido) */
+  .modal{position:fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,.75); z-index:50}
+  .modal.open{display:flex}
+  .modal .panel{width:min(1000px,92vw); max-height:90vh; overflow:auto; background:#111827; border:1px solid rgba(255,255,255,.12); border-radius:16px; padding:16px; box-shadow: 0 20px 60px rgba(0,0,0,.6)}
+  .modal .head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px}
+  .modal .title{font-weight:800}
+  .modal .close{background:transparent; border:1px solid rgba(255,255,255,.25); color:#e5e7eb; padding:6px 10px; border-radius:10px; cursor:pointer}
+</style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <div class="logo">R$</div>
+        <h1>Zada Finanças</h1>
+      </div>
+      <nav>
+        <button class="tab active" data-target="resumo">Resumo</button>
+        <button class="tab" data-target="lancamentos">Lançamentos</button>
+        <button class="tab" data-target="menu">Menu</button>
+      </nav>
+    </header>
+
+    <!-- RESUMO -->
+    <section id="resumo" class="view active">
+      <div class="card">
+        <h3>Filtros do resumo</h3>
+        <div class="toolbar" id="toolbarResumo">
+          <div class="group">
+            <span class="sub">Período:</span>
+            <button class="pillbtn" data-preset="month">Mês atual</button>
+            <button class="pillbtn" data-preset="3m">Últ. 3m</button>
+            <button class="pillbtn" data-preset="6m">Últ. 6m</button>
+            <button class="pillbtn" data-preset="12m">Últ. 12m</button>
+            <button class="pillbtn" data-preset="ytd">Este ano</button>
+            <input id="rDataIni" class="input" type="date" />
+            <input id="rDataFim" class="input" type="date" />
+            <button class="btn ghost" id="rLimpar">Limpar</button>
+          </div>
+          <div class="group">
+            <select id="rConta"><option value="">Conta (todas)</option></select>
+            <select id="rCategoria"><option value="">Categoria (todas)</option></select>
+            <label style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.25);padding:6px 10px;border-radius:9999px;">
+              <input type="checkbox" id="rIncCred" checked> Incluir receitas
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.25);padding:6px 10px;border-radius:9999px;">
+              <input type="checkbox" id="rIncDeb" checked> Incluir despesas
+            </label>
+            <button class="btn primary" id="rAplicar">Aplicar</button>
+          </div>
+        </div>
+        <div class="hint">Todos os números abaixo respeitam estes filtros.</div>
+      </div>
+
+      <div class="grid cols-3" style="margin-top:16px">
+        <div class="card"><h3>Saldo</h3><div id="kpi-saldo" class="kpi">R$ 0,00</div><div class="sub" id="kpi-periodo"></div></div>
+        <div class="card"><h3>Receitas</h3><div id="kpi-receitas" class="kpi positive">R$ 0,00</div><div class="sub">Entradas no período</div></div>
+        <div class="card"><h3>Despesas</h3><div id="kpi-despesas" class="kpi negative">R$ 0,00</div><div class="sub">Saídas no período</div></div>
+      </div>
+
+      <div class="charts" style="margin-top:16px">
+        <div class="card">
+          <h3>Fluxo mensal</h3>
+          <canvas id="chartMensal" height="140"></canvas>
+        </div>
+
+        <div class="card">
+          <h3>Por categoria</h3>
+          <div class="actions">
+            <div class="seg" id="segCatMode">
+              <button class="segbtn active" data-mode="debit" title="Despesas">Despesas</button>
+              <button class="segbtn" data-mode="credit" title="Receitas">Receitas</button>
+              <button class="segbtn" data-mode="net" title="Saldo">Saldo</button>
+            </div>
+            <button id="btnOpenTotals" class="iconbtn" title="Ver detalhamento">🔎</button>
+          </div>
+          <canvas id="chartCategorias" height="160"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>Saldo por conta</h3>
+        <canvas id="chartContas" height="160"></canvas>
+      </div>
+    </section>
+
+    <!-- LANÇAMENTOS -->
+    <section id="lancamentos" class="view">
+      <div class="card">
+        <div class="toolbar">
+          <input id="fBusca" class="input" placeholder="Buscar descrição/categoria..." />
+          <select id="fConta"><option value="">Conta (todas)</option></select>
+          <select id="fTipo">
+            <option value="">Tipo (todos)</option>
+            <option value="credit">Receitas</option>
+            <option value="debit">Despesas</option>
+          </select>
+          <input id="fDataIni" class="input" type="date" />
+          <input id="fDataFim" class="input" type="date" />
+          <button class="btn primary" id="btnFiltrar">Filtrar</button>
+          <button class="btn ghost" id="btnLimpar">Limpar</button>
+          <button class="btn ghost" id="btnExportCSV">Exportar CSV</button>
+        </div>
+        <div style="overflow:auto">
+          <table class="table" id="tblLanc">
+            <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Conta</th><th>Tipo</th><th style="text-align:right">Valor</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MENU -->
+    <section id="menu" class="view">
+      <div class="grid">
+        <div class="card">
+          <h3>Importar base SQLite</h3>
+          <div class="drop" id="drop">
+            <p><strong>Solte aqui</strong> seu arquivo <code>.sqlite</code> ou clique abaixo.</p>
+            <p class="hint">O app detecta automaticamente o esquema <span class="pill">CXALANC/CXACON/TABTIPC</span>.</p>
+            <input type="file" id="fileSqlite" accept=".sqlite,.db,application/octet-stream" style="display:none" />
+            <button class="btn primary" type="button" id="btnPick">Selecionar arquivo .sqlite</button>
+            <div id="importStatus" class="hint" style="margin-top:10px"></div>
+          </div>
+          <div id="tableChooser" style="display:none;margin-top:12px">
+            <label class="sub">Selecione a tabela de lançamentos:</label>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <select id="selTabela"></select>
+              <button class="btn" id="btnUsarTabela">Usar tabela</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Esquema esperado</h3>
+          <ul class="hint" style="margin-top:0;line-height:1.6">
+            <li>Lançamentos: <code>CXALANC</code> (DATA, DEBCRE, VALOR/VALCREDITO/VALDEBITO, TIPOCONTA, COMPLEMENTO, OBSERVACAO(S), CONTA)</li>
+            <li>Contas: <code>CXACON</code> (CODIGO, DESCRICAO/NOME)</li>
+            <li>Tipos/Categorias: <code>TABTIPC</code> (CODIGO, DESCRICAO)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer>Feito com Chart.js + sql.js (WASM). Seus dados não saem do navegador.</footer>
+  </div>
+
+  <!-- MODAL: Totalização por categoria (respeita modo atual) -->
+  <div id="modalTotals" class="modal" role="dialog" aria-modal="true" aria-labelledby="ttlTitle">
+    <div class="panel">
+      <div class="head">
+        <div>
+          <div class="title" id="ttlTitle">Por categoria — detalhamento</div>
+          <div class="hint" id="ttlSubtitle"></div>
+        </div>
+        <div style="display:flex; gap:8px">
+          <button id="btnExportTotals" class="btn ghost">Exportar CSV</button>
+          <button id="btnCloseTotals" class="close">Fechar</button>
+        </div>
+      </div>
+      <div style="overflow:auto">
+        <table class="table" id="tblTotals">
+          <thead>
+            <tr>
+              <th>Categoria</th>
+              <th style="text-align:right">Total</th>
+              <th style="text-align:right">% do total</th>
+              <th style="text-align:right">Qtd.</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <th>Total geral</th>
+              <th id="ttlSum" style="text-align:right">R$ 0,00</th>
+              <th id="ttlPct100" style="text-align:right">100%</th>
+              <th id="ttlCount" style="text-align:right">0</th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+let DB=null, SQL=null;
+let lancamentos=[]; // {date, amount, signed, type, category, description, account}
+let charts={mensal:null,cat:null,contas:null};
+let catMode='debit'; // 'debit' | 'credit' | 'net'
+
+/* ------------------------------- Utils ---------------------------------- */
+const R$=(v)=> v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const normalizeStr=(s)=>(s||'').toString().toLowerCase();
+const byMonthKey=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+const fmtMonth=(k)=>{const[y,m]=k.split('-');return new Date(+y,+m-1,1).toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})};
+function parseMaybeDate(s){
+  if(s instanceof Date) return s;
+  if(typeof s==='number') return new Date(s);
+  if(!s) return null;
+  const iso=new Date(s); if(!isNaN(iso)) return iso;
+  const m=String(s).match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if(m){const[_,d,mo,y]=m; const Y=(+y<100?2000+ +y:+y); return new Date(Y,+mo-1,+d);}
+  return null;
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function csvEscape(s){return `"${String(s).replaceAll('"','""')}"`}
+
+/* ------------------------------- Tabs ----------------------------------- */
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.addEventListener
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.target).classList.add('active');
+    if(btn.dataset.target==='resumo'){ setTimeout(()=>{ charts.mensal?.resize(); charts.cat?.resize(); charts.contas?.resize(); }, 50); }
+  });
+});
+document.querySelector('.tab[data-target="menu"]').addEventListener('click', ()=>{ setTimeout(()=>{ document.getElementById('fileSqlite')?.click(); },150); });
+
+/* ---------------------------- sql.js init ------------------------------- */
+(async function initSQL(){ SQL=await initSqlJs({ locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${f}` }); })();
+
+/* ----------------------------- Importação ------------------------------- */
+const fileInput=document.getElementById('fileSqlite');
+const drop=document.getElementById('drop');
+const statusBox=document.getElementById('importStatus');
+const tableChooser=document.getElementById('tableChooser');
+const selTabela=document.getElementById('selTabela');
+const btnUsarTabela=document.getElementById('btnUsarTabela');
+const btnPick=document.getElementById('btnPick');
+const setStatus=(m)=> statusBox.textContent=m;
+
+drop?.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='var(--accent)'});
+drop?.addEventListener('dragleave',()=>{drop.style.borderColor='rgba(255,255,255,.2)'});
+drop?.addEventListener('drop',e=>{e.preventDefault();drop.style.borderColor='rgba(255,255,255,.2)'; const f=e.dataTransfer.files?.[0]; if(f) handleFile(f);});
+drop?.addEventListener('click',()=> fileInput?.click());
+btnPick?.addEventListener('click',()=> fileInput?.click());
+fileInput?.addEventListener('change',e=>{const f=e.target.files?.[0]; if(f) handleFile(f);});
+
+async function handleFile(file){
+  if(!SQL){ setStatus('Carregando engine SQL...'); return; }
+  setStatus(`Lendo arquivo: ${file.name} (${Math.round(file.size/1024)} KB)...`);
+  try{
+    const buf=await file.arrayBuffer();
+    DB?.close?.(); DB=new SQL.Database(new Uint8Array(buf));
+    setStatus('Banco carregado. Inspecionando tabelas...');
+    const tables=listTables();
+    const hasCXA=tables.includes('CXALANC') && tables.includes('CXACON') && tables.includes('TABTIPC');
+    if(hasCXA){ await loadFromCxaSchema(); return; }
+    const preferidas=['transactions','lancamentos'];
+    let escolhida=preferidas.find(t=>tables.includes(t));
+    if(!escolhida){
+      selTabela.innerHTML=tables.map(t=>`<option>${t}</option>`).join('');
+      tableChooser.style.display='block';
+      setStatus('Selecione a tabela que contém os lançamentos.');
+      btnUsarTabela.onclick=()=> loadFromTable(selTabela.value);
+    }else{ await loadFromTable(escolhida); }
+  }catch(err){ console.error(err); setStatus('Falha ao abrir o arquivo SQLite.'); }
+}
+function listTables(){
+  const res=DB.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;");
+  return (res[0]?.values||[]).map(r=>String(r[0]));
+}
+
+async function loadFromCxaSchema(){
+  tableChooser.style.display='none';
+  setStatus('Detectado esquema CXA. Carregando...');
+  const sql=`
+    SELECT
+      l.DATA AS data,
+      CASE
+        WHEN UPPER(IFNULL(l.DEBCRE,''))='C' THEN 'credit'
+        WHEN UPPER(IFNULL(l.DEBCRE,''))='D' THEN 'debit'
+        ELSE CASE WHEN COALESCE(l.VALCREDITO,0) >= COALESCE(l.VALDEBITO,0) THEN 'credit' ELSE 'debit' END
+      END AS tipo_norm,
+      CASE
+        WHEN UPPER(IFNULL(l.DEBCRE,''))='C' THEN ABS(COALESCE(l.VALOR,l.VALCREDITO,0))
+        WHEN UPPER(IFNULL(l.DEBCRE,''))='D' THEN -ABS(COALESCE(l.VALOR,l.VALDEBITO,0))
+        ELSE COALESCE(l.VALCREDITO,0)-COALESCE(l.VALDEBITO,0)
+      END AS signed,
+      ABS(
+        CASE
+          WHEN UPPER(IFNULL(l.DEBCRE,''))='C' THEN ABS(COALESCE(l.VALOR,l.VALCREDITO,0))
+          WHEN UPPER(IFNULL(l.DEBCRE,''))='D' THEN -ABS(COALESCE(l.VALOR,l.VALDEBITO,0))
+          ELSE COALESCE(l.VALCREDITO,0)-COALESCE(l.VALDEBITO,0)
+        END
+      ) AS amount_abs,
+      COALESCE(tt.DESCRICAO,'') AS categoria,
+      TRIM(COALESCE(NULLIF(l.COMPLEMENTO,''), NULLIF(l.OBSERVACAO,''), NULLIF(l.OBSERVACOES,''), '')) AS descricao,
+      COALESCE(NULLIF(c.DESCRICAO,''), NULLIF(c.NOME,''), '') AS conta_nome
+    FROM CXALANC l
+    LEFT JOIN TABTIPC tt ON tt.CODIGO=l.TIPOCONTA
+    LEFT JOIN CXACON  c  ON c.CODIGO=l.CONTA
+    ORDER BY l.DATA, l.CONTA, l.SEQUENCIAL;
+  `;
+  const res=DB.exec(sql);
+  if(!res.length||!res[0].values.length){ setStatus('Não encontrei lançamentos na CXALANC.'); return; }
+  const cols=res[0].columns.map(c=>c.toLowerCase());
+  const ix=(n)=> cols.indexOf(n);
+  const out=res[0].values.map(r=>{
+    const d=parseMaybeDate(r[ix('data')]);
+    const signed=Number(r[ix('signed')]||0);
+    const amount=Number(r[ix('amount_abs')]||Math.abs(signed));
+    return {
+      date:d, amount, signed,
+      type:(signed>=0?'credit':'debit'),
+      category:String(r[ix('categoria')]||''),
+      description:String(r[ix('descricao')]||''),
+      account:String(r[ix('conta_nome')]||'')
+    };
+  }).filter(x=>x.date && isFinite(x.signed));
+  lancamentos=out.sort((a,b)=>a.date-b.date);
+  setStatus(`Importados ${lancamentos.length} lançamentos.`);
+  refreshAll();
+  document.querySelector('.tab[data-target="resumo"]').click();
+}
+
+async function loadFromTable(table){
+  tableChooser.style.display='none';
+  setStatus(`Lendo dados da tabela "${table}"...`);
+  const schema=DB.exec(`PRAGMA table_info("${table.replaceAll('"','""')}");`)[0];
+  const cols=(schema?.values||[]).map(v=>String(v[1]).toLowerCase());
+  const map={
+    date:pick(cols,['date','data','dt','created_at']),
+    amount:pick(cols,['amount','valor','value','val']),
+    type:pick(cols,['type','tipo']),
+    category:pick(cols,['category','categoria','cat','grupo']),
+    description:pick(cols,['description','descricao','desc','memo','observacao']),
+    account:pick(cols,['conta','account','carteira'])
+  };
+  if(!map.amount||!map.date){ setStatus('Não achei colunas mínimas (data/valor).'); return; }
+  const res=DB.exec(`SELECT * FROM "${table.replaceAll('"','""')}";`);
+  const headers=(res[0]?.columns||[]).map(c=>c.toLowerCase());
+  const idx=(n)=> headers.indexOf(n);
+  lancamentos=(res[0]?.values||[]).map(row=>{
+    const d=parseMaybeDate(row[idx(map.date)]);
+    const rawAmt=row[idx(map.amount)];
+    const amt=typeof rawAmt==='number'? rawAmt : parseFloat(String(rawAmt).replace(',', '.'));
+    const t=normalizeStr(map.type? row[idx(map.type)] : '');
+    const cat=map.category? row[idx(map.category)] : '';
+    const desc=map.description? row[idx(map.description)] : '';
+    const acc=map.account? row[idx(map.account)] : '';
+    if(!isFinite(amt)||!d) return null;
+    let type='credit';
+    if(t.includes('debit')||t.includes('desp')||amt<0) type='debit';
+    if(t.includes('credit')||t.includes('rec')||amt>=0) type=(amt<0?'debit':'credit');
+    const signed=(type==='credit'? +Math.abs(amt) : -Math.abs(amt));
+    return {date:d,amount:Math.abs(amt),signed,type:(signed>=0?'credit':'debit'),category:String(cat||''),description:String(desc||''),account:String(acc||'')};
+  }).filter(Boolean).sort((a,b)=>a.date-b.date);
+  setStatus(`Importados ${lancamentos.length} lançamentos.`);
+  refreshAll();
+  document.querySelector('.tab[data-target="resumo"]').click();
+}
+function pick(cols,opts){ return opts.find(o=>cols.includes(o)); }
+
+/* ---------------------------- Filtros RESUMO ---------------------------- */
+const rDataIni=document.getElementById('rDataIni');
+const rDataFim=document.getElementById('rDataFim');
+const rConta=document.getElementById('rConta');
+const rCategoria=document.getElementById('rCategoria');
+const rAplicar=document.getElementById('rAplicar');
+const rLimpar=document.getElementById('rLimpar');
+const rIncCred=document.getElementById('rIncCred');
+const rIncDeb=document.getElementById('rIncDeb');
+
+document.getElementById('toolbarResumo').addEventListener('click', (e)=>{
+  const btn=e.target.closest('[data-preset]');
+  if(!btn) return;
+  document.querySelectorAll('[data-preset]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const today=new Date();
+  let start,end;
+  switch(btn.dataset.preset){
+    case 'month': start=new Date(today.getFullYear(), today.getMonth(), 1); end=new Date(today.getFullYear(), today.getMonth()+1, 0); break;
+    case '3m': end=new Date(today.getFullYear(), today.getMonth(), today.getDate()); start=new Date(end.getFullYear(), end.getMonth()-3, 1); break;
+    case '6m': end=new Date(today.getFullYear(), today.getMonth(), today.getDate()); start=new Date(end.getFullYear(), end.getMonth()-6, 1); break;
+    case '12m': end=new Date(today.getFullYear(), today.getMonth(), today.getDate()); start=new Date(end.getFullYear(), end.getMonth()-12, 1); break;
+    case 'ytd': start=new Date(today.getFullYear(), 0, 1); end=new Date(today.getFullYear(), today.getMonth()+1, 0); break;
+  }
+  rDataIni.valueAsDate=start; rDataFim.valueAsDate=end;
+});
+[rDataIni,rDataFim,rConta,rCategoria,rIncCred,rIncDeb].forEach(el=> el.addEventListener('change', ()=>{ document.querySelectorAll('[data-preset]').forEach(b=>b.classList.remove('active')); }));
+rAplicar.addEventListener('click', ()=>{ renderResumo(); });
+rLimpar.addEventListener('click', ()=>{ rDataIni.value=''; rDataFim.value=''; rConta.value=''; rCategoria.value=''; rIncCred.checked=true; rIncDeb.checked=true; document.querySelectorAll('[data-preset]').forEach(b=>b.classList.remove('active')); renderResumo(); });
+
+function hydrateResumoFilters(){
+  const contas=[...new Set(lancamentos.map(l=>(l.account?.trim()||'Sem conta')))].sort();
+  const cats=[...new Set(lancamentos.map(l=>(l.category?.trim()||'Sem categoria')))].sort();
+  const sel=(el,opts,placeholder)=>{ el.innerHTML=`<option value="">${placeholder}</option>`+opts.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join(''); }
+  sel(rConta, contas, 'Conta (todas)');
+  sel(rCategoria, cats, 'Categoria (todas)');
+}
+
+function getResumoData(){
+  let data=[...lancamentos];
+  if(rDataIni.value){ const di=new Date(rDataIni.value+'T00:00:00'); data=data.filter(l=> l.date>=di); }
+  if(rDataFim.value){ const df=new Date(rDataFim.value+'T23:59:59'); data=data.filter(l=> l.date<=df); }
+  if(rConta.value) data=data.filter(l=>(l.account?.trim()||'Sem conta')===rConta.value);
+  if(rCategoria.value) data=data.filter(l=>(l.category?.trim()||'Sem categoria')===rCategoria.value);
+  data=data.filter(l=> (rIncCred.checked && l.type==='credit') || (rIncDeb.checked && l.type==='debit'));
+  return data;
+}
+
+/* --------------------- Modo do gráfico por categoria -------------------- */
+const segCat=document.getElementById('segCatMode');
+segCat.addEventListener('click', (e)=>{
+  const btn=e.target.closest('.segbtn'); if(!btn) return;
+  segCat.querySelectorAll('.segbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  catMode=btn.dataset.mode; // 'debit'|'credit'|'net'
+  renderResumo();
+});
+
+/* ---------------------------- Atualizações UI --------------------------- */
+const tbody=document.querySelector('#tblLanc tbody');
+const fBusca=document.getElementById('fBusca');
+const fConta=document.getElementById('fConta');
+const fTipo=document.getElementById('fTipo');
+const fDataIni=document.getElementById('fDataIni');
+const fDataFim=document.getElementById('fDataFim');
+
+document.getElementById('btnFiltrar').addEventListener('click', renderTable);
+document.getElementById('btnLimpar').addEventListener('click', ()=>{ fBusca.value='';fConta.value='';fTipo.value='';fDataIni.value='';fDataFim.value='';renderTable();});
+document.getElementById('btnExportCSV').addEventListener('click', exportCSV);
+
+function refreshAll(){
+  hydrateResumoFilters();
+  hydrateAccountFilter();
+  renderResumo();
+  renderTable();
+}
+
+/* ----------------------------- RESUMO render ---------------------------- */
+document.getElementById('btnOpenTotals').addEventListener('click', openTotalsModal);
+
+function renderResumo(){
+  const data=getResumoData();
+
+  // KPIs
+  if(!data.length){
+    document.getElementById('kpi-saldo').textContent='R$ 0,00';
+    document.getElementById('kpi-receitas').textContent='R$ 0,00';
+    document.getElementById('kpi-despesas').textContent='R$ 0,00';
+    document.getElementById('kpi-periodo').textContent='';
+  }else{
+    const sorted=[...data].sort((a,b)=> a.date-b.date);
+    const ini=sorted[0].date, fim=sorted[sorted.length-1].date;
+    const rec=rIncCred.checked ? data.filter(x=>x.type==='credit').reduce((s,x)=>s+x.amount,0) : 0;
+    const desp=rIncDeb.checked ? data.filter(x=>x.type==='debit').reduce((s,x)=>s+x.amount,0) : 0;
+    const saldo=(rIncCred.checked?rec:0) - (rIncDeb.checked?desp:0);
+    const kSaldo=document.getElementById('kpi-saldo');
+    kSaldo.textContent=R$(saldo);
+    kSaldo.classList.toggle('positive',saldo>=0);
+    kSaldo.classList.toggle('negative',saldo<0);
+    document.getElementById('kpi-receitas').textContent=R$(rec);
+    document.getElementById('kpi-despesas').textContent=R$(desp);
+    const di=(rDataIni.value? new Date(rDataIni.value): ini);
+    const df=(rDataFim.value? new Date(rDataFim.value): fim);
+    document.getElementById('kpi-periodo').textContent=`Período: ${di.toLocaleDateString('pt-BR')} — ${df.toLocaleDateString('pt-BR')}`;
+  }
+
+  // Fluxo mensal
+  const byMonth={};
+  data.forEach(l=>{
+    const k=byMonthKey(l.date);
+    byMonth[k]??={rec:0,desp:0};
+    if(l.type==='credit') byMonth[k].rec+=l.amount; else byMonth[k].desp+=l.amount;
+  });
+  const mkeys=Object.keys(byMonth).sort();
+  const labels=mkeys.map(fmtMonth);
+  const receitas=mkeys.map(k=> byMonth[k].rec);
+  const despesas=mkeys.map(k=> byMonth[k].desp);
+  const saldoSeries=mkeys.map(k=> (rIncCred.checked?byMonth[k].rec:0) - (rIncDeb.checked?byMonth[k].desp:0));
+
+  charts.mensal?.destroy();
+  charts.mensal=new Chart(document.getElementById('chartMensal'),{
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'Receitas',data:rIncCred.checked?receitas:Array(receitas.length).fill(0)},
+      {label:'Despesas',data:rIncDeb.checked?despesas:Array(despesas.length).fill(0)},
+      {label:'Saldo',data:saldoSeries,type:'line'}
+    ]},
+    options:{
+      responsive:true,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#e5e7eb'}}},
+      scales:{ x:{ticks:{color:'#e5e7eb'},grid:{color:'rgba(255,255,255,.08)'}},
+               y:{ticks:{color:'#e5e7eb',callback:(v)=>R$(v)},grid:{color:'rgba(255,255,255,.08)'}}}
+    }
+  });
+
+  // ------- Por categoria (sempre pizza) -------
+  const catAgg={}, countByCat={};
+  data.forEach(l=>{
+    const cat=(l.category?.trim())||'Sem categoria';
+    if(!(cat in catAgg)) catAgg[cat]=0, countByCat[cat]=0;
+    if(catMode==='debit' && l.type==='debit'){ catAgg[cat]+=l.amount; countByCat[cat]++; }
+    if(catMode==='credit' && l.type==='credit'){ catAgg[cat]+=l.amount; countByCat[cat]++; }
+    if(catMode==='net'){ catAgg[cat]+= (l.type==='credit'? +l.amount : -l.amount); countByCat[cat]++; }
+  });
+
+  const labelsCat=Object.keys(catAgg);
+  const signedVals=labelsCat.map(k=>catAgg[k]);           // valores reais (com sinal no modo saldo)
+  const pieVals = (catMode==='net')
+      ? signedVals.map(v=>Math.abs(v))                    // fatias proporcionais ao módulo do saldo
+      : signedVals;                                       // despesas/receitas já são positivos
+
+  charts.cat?.destroy();
+  charts.cat=new Chart(document.getElementById('chartCategorias'),{
+    type:'doughnut',
+    data:{labels:labelsCat,datasets:[{data:pieVals, metaSigned:signedVals}]},
+    options:{
+      plugins:{
+        legend:{position:'bottom',labels:{color:'#e5e7eb'}},
+        tooltip:{callbacks:{
+          label:(ctx)=>{
+            const lbl = ctx.label;
+            const signed = ctx.dataset.metaSigned?.[ctx.dataIndex] ?? ctx.parsed;
+            return `${lbl}: ${R$(signed)}`;
+          }
+        }}
+      }
+    }
+  });
+
+  // Saldo por conta
+  const contasAgg={};
+  data.forEach(l=>{
+    const k=(l.account&&l.account.trim())?l.account.trim():'Sem conta';
+    const signed = (l.type==='credit' ? (rIncCred.checked? +l.amount : 0) : (rIncDeb.checked? -l.amount : 0));
+    contasAgg[k]=(contasAgg[k]||0)+signed;
+  });
+  const contasLabels=Object.keys(contasAgg);
+  const contasVals=contasLabels.map(k=>contasAgg[k]);
+  charts.contas?.destroy();
+  charts.contas=new Chart(document.getElementById('chartContas'),{
+    type:'bar',
+    data:{labels:contasLabels,datasets:[{label:'Saldo',data:contasVals}]},
+    options:{
+      indexAxis:'y',
+      plugins:{legend:{labels:{color:'#e5e7eb'}},tooltip:{callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${R$(ctx.parsed.x)}`}}},
+      scales:{
+        x:{ticks:{color:'#e5e7eb',callback:(v)=>R$(v)},grid:{color:'rgba(255,255,255,.08)'}},
+        y:{ticks:{color:'#e5e7eb'},grid:{color:'rgba(255,255,255,.08)'}}
+      }
+    }
+  });
+}
+
+/* --------- Modal Totais por Categoria (respeita catMode atual) ---------- */
+const modalTotals=document.getElementById('modalTotals');
+const btnCloseTotals=document.getElementById('btnCloseTotals');
+const btnExportTotals=document.getElementById('btnExportTotals');
+const tblTotalsBody=document.querySelector('#tblTotals tbody');
+const ttlSum=document.getElementById('ttlSum');
+const ttlSubtitle=document.getElementById('ttlSubtitle');
+
+document.getElementById('btnOpenTotals').addEventListener('click', openTotalsModal);
+btnCloseTotals.addEventListener('click', ()=> modalTotals.classList.remove('open'));
+modalTotals.addEventListener('click', (e)=>{ if(e.target===modalTotals) modalTotals.classList.remove('open'); });
+btnExportTotals.addEventListener('click', ()=>{
+  const rows=[...tblTotalsBody.querySelectorAll('tr')].map(tr=> Array.from(tr.children).map(td=> td.textContent));
+  const head=['categoria','total','percentual','quantidade'];
+  const csv=[head, ...rows].map(r=> r.map(c=> `"${String(c).replaceAll('"','""')}"`).join(';')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=Object.assign(document.createElement('a'),{href:url,download:`totais_categorias_${catMode}_${Date.now()}.csv`});
+  a.click(); URL.revokeObjectURL(url);
+});
+
+function openTotalsModal(){
+  const data=getResumoData();
+  const totals={}, counts={};
+  data.forEach(l=>{
+    const cat=(l.category?.trim())||'Sem categoria';
+    totals[cat]??=0; counts[cat]??=0;
+    if(catMode==='debit'){ if(l.type==='debit'){ totals[cat]+=l.amount; counts[cat]++; } }
+    else if(catMode==='credit'){ if(l.type==='credit'){ totals[cat]+=l.amount; counts[cat]++; } }
+    else { totals[cat]+= (l.type==='credit'? +l.amount : -l.amount); counts[cat]++; }
+  });
+
+  const cats=Object.keys(totals);
+  const totalAllForPct = (catMode==='net')
+      ? cats.reduce((s,k)=> s+Math.abs(totals[k]), 0) // % por módulo do saldo
+      : cats.reduce((s,k)=> s+totals[k], 0);
+
+  tblTotalsBody.innerHTML = cats
+    .sort((a,b)=> Math.abs(totals[b]) - Math.abs(totals[a]))
+    .map(cat=>{
+      const val=totals[cat];
+      const pct = totalAllForPct>0 ? ((catMode==='net'? Math.abs(val):val)/totalAllForPct*100) : 0;
+      return `<tr>
+        <td>${escapeHtml(cat)}</td>
+        <td style="text-align:right">${R$(val)}</td>
+        <td style="text-align:right">${pct.toFixed(1)}%</td>
+        <td style="text-align:right">${counts[cat]}</td>
+      </tr>`;
+    }).join('');
+
+  const sumVal = (catMode==='net')
+      ? cats.reduce((s,k)=> s+totals[k], 0) // saldo líquido total (com sinal)
+      : cats.reduce((s,k)=> s+totals[k], 0);
+
+  ttlSum.textContent = R$(sumVal);
+
+  const sorted=[...data].sort((a,b)=> a.date-b.date);
+  const modeLabel = catMode==='debit'?'Despesas':(catMode==='credit'?'Receitas':'Saldo');
+  ttlSubtitle.textContent = data.length ? `${modeLabel} por categoria · Período: ${sorted[0].date.toLocaleDateString('pt-BR')} — ${sorted[sorted.length-1].date.toLocaleDateString('pt-BR')}` : 'Sem dados no período/filtros selecionados.';
+  modalTotals.classList.add('open');
+}
+
+/* ---------------------- Lançamentos: filtros/tabela --------------------- */
+function hydrateAccountFilter(){
+  const set=new Set(lancamentos.map(l=> (l.account&&l.account.trim())?l.account.trim():'Sem conta'));
+  const current=fConta.value;
+  fConta.innerHTML=`<option value="">Conta (todas)</option>`+Array.from(set).sort().map(acc=>`<option value="${escapeHtml(acc)}">${escapeHtml(acc)}</option>`).join('');
+  if(Array.from(set).includes(current)) fConta.value=current;
+}
+function applyFiltersLanc(){
+  let data=[...lancamentos];
+  const q=normalizeStr(fBusca.value);
+  if(q) data=data.filter(l=> normalizeStr(l.description).includes(q)||normalizeStr(l.category).includes(q)||normalizeStr(l.account).includes(q));
+  if(fConta.value) data=data.filter(l=> (l.account?.trim()||'Sem conta')===fConta.value);
+  if(fTipo.value) data=data.filter(l=> l.type===fTipo.value);
+  if(fDataIni.value){ const di=new Date(fDataIni.value+'T00:00:00'); data=data.filter(l=> l.date>=di); }
+  if(fDataFim.value){ const df=new Date(fDataFim.value+'T23:59:59'); data=data.filter(l=> l.date<=df); }
+  return data;
+}
+function renderTable(){
+  const data=applyFiltersLanc();
+  tbody.innerHTML=data.map(l=>{
+    const tipo=l.type==='credit'?'Receita':'Despesa';
+    const cls=l.type==='credit'?'positive':'negative';
+    const conta=(l.account&&l.account.trim())?l.account.trim():'Sem conta';
+    return `<tr>
+      <td>${l.date.toLocaleDateString('pt-BR')}</td>
+      <td>${escapeHtml(l.description)}</td>
+      <td>${escapeHtml(l.category||'')}</td>
+      <td>${escapeHtml(conta)}</td>
+      <td>${tipo}</td>
+      <td style="text-align:right" class="${cls}">${R$(l.amount)}</td>
+    </tr>`;
+  }).join('');
+}
+function exportCSV(){
+  const data=applyFiltersLanc();
+  const head=['data','descricao','categoria','conta','tipo','valor'];
+  const rows=data.map(l=>[
+    l.date.toISOString().slice(0,10),
+    csvEscape(l.description),
+    csvEscape(l.category||''),
+    csvEscape((l.account&&l.account.trim())?l.account.trim():'Sem conta'),
+    l.type,
+    (l.signed ?? (l.type==='credit'?+l.amount:-l.amount)).toString().replace('.',',')
+  ]);
+  const csv=[head.join(';'),...rows.map(r=>r.join(';'))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=Object.assign(document.createElement('a'),{href:url,download:'lancamentos.csv'}); a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------------------------- Demo seed --------------------------------- */
+(function seedExample(){
+  const today=new Date(); const monthsBack=(n)=> new Date(today.getFullYear(), today.getMonth()-n, 10);
+  const demo=[
+    {date:monthsBack(5),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
+    {date:monthsBack(5),amount:800,signed:-800,type:'debit',category:'Alimentação',description:'Supermercado',account:'Banco A'},
+    {date:monthsBack(4),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
+    {date:monthsBack(4),amount:1200,signed:-1200,type:'debit',category:'Moradia',description:'Aluguel',account:'Banco B'},
+    {date:monthsBack(4),amount:300,signed:-300,type:'debit',category:'Transporte',description:'Combustível',account:'Banco B'},
+    {date:monthsBack(3),amount:5200,signed:+5200,type:'credit',category:'Salário',description:'Salário (bônus)',account:'Banco A'},
+    {date:monthsBack(3),amount:950,signed:-950,type:'debit',category:'Alimentação',description:'Restaurantes',account:'Carteira'},
+    {date:monthsBack(2),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
+    {date:monthsBack(2),amount:200,signed:-200,type:'debit',category:'Saúde',description:'Farmácia',account:'Banco B'},
+    {date:monthsBack(1),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
+    {date:monthsBack(1),amount:1500,signed:-1500,type:'debit',category:'Educação',description:'Curso',account:'Banco B'},
+    {date:monthsBack(0),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A'},
+    {date:monthsBack(0),amount:400,signed:-400,type:'debit',category:'Lazer',description:'Cinema/Shows',account:'Carteira'},
+  ];
+  lancamentos=demo.sort((a,b)=>a.date-b.date);
+  refreshAll();
+})();
+</script>
+</body>
+</html>

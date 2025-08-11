@@ -262,15 +262,35 @@ const R$=(v)=> v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const normalizeStr=(s)=>(s||'').toString().toLowerCase();
 const byMonthKey=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 const fmtMonth=(k)=>{const[y,m]=k.split('-');return new Date(+y,+m-1,1).toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})};
+
+// ? Parse LOCAL: evita bug UTC (mês errado)
 function parseMaybeDate(s){
-  if(s instanceof Date) return s;
-  if(typeof s==='number') return new Date(s);
+  if(s instanceof Date) return new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  if(typeof s === 'number'){
+    const d = new Date(s);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
   if(!s) return null;
-  const iso=new Date(s); if(!isNaN(iso)) return iso;
-  const m=String(s).match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
-  if(m){const[_,d,mo,y]=m; const Y=(+y<100?2000+ +y:+y); return new Date(Y,+mo-1,+d);}
+  const str = String(s).trim();
+
+  // YYYY-MM-DD
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m){ const [_, y, mo, d] = m; return new Date(+y, +mo-1, +d); }
+
+  // DD/MM/YYYY ou DD-MM-YYYY
+  m = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if(m){ const [_, d, mo, y] = m; const Y=(+y<100?2000+ +y:+y); return new Date(Y, +mo-1, +d); }
+
+  // YYYYMMDD
+  m = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if(m){ const [_, y, mo, d] = m; return new Date(+y, +mo-1, +d); }
+
+  // fallback
+  const guess = new Date(str);
+  if(!isNaN(guess)) return new Date(guess.getFullYear(), guess.getMonth(), guess.getDate());
   return null;
 }
+
 function escapeHtml(s){return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function csvEscape(s){return `"${String(s).replaceAll('"','""')}"`}
 
@@ -361,7 +381,7 @@ async function loadFromCxaSchema(){
     FROM CXALANC l
     LEFT JOIN TABTIPC tt ON tt.CODIGO=l.TIPOCONTA
     LEFT JOIN CXACON  c  ON c.CODIGO=l.CONTA
-    WHERE l.TIPOCONTA > 0                        -- ?? exclui transferências/ajustes
+    WHERE l.TIPOCONTA > 0
     ORDER BY l.DATA, l.CONTA, l.SEQUENCIAL;
   `;
   const res=DB.exec(sql);
@@ -467,14 +487,20 @@ function hydrateResumoFilters(){
 
 /* ------------------------ Funções de dados (Resumo) --------------------- */
 function getResumoData(){
-  // Base: aplica filtros de período/conta/categoria e toggles crédito/débito
   let data=[...lancamentos];
-  if(rDataIni.value){ const di=new Date(rDataIni.value+'T00:00:00'); data=data.filter(l=> l.date>=di); }
-  if(rDataFim.value){ const df=new Date(rDataFim.value+'T23:59:59'); data=data.filter(l=> l.date<=df); }
+  if(rDataIni.value){
+    const di = parseMaybeDate(rDataIni.value); // local
+    data = data.filter(l=> l.date >= di);
+  }
+  if(rDataFim.value){
+    const df = parseMaybeDate(rDataFim.value); // local
+    df.setHours(23,59,59,999);                 // ? fim do dia local
+    data = data.filter(l => l.date <= df);
+  }
   if(rConta.value) data=data.filter(l=>(l.account?.trim()||'Sem conta')===rConta.value);
   if(rCategoria.value) data=data.filter(l=>(l.category?.trim()||'Sem categoria')===rCategoria.value);
   data=data.filter(l=> (rIncCred.checked && l.type==='credit') || (rIncDeb.checked && l.type==='debit'));
-  // Regra do usuário: no RESUMO considerar somente PARTICIPAORCAMENTO <> 'F'
+  // No RESUMO: somente PARTICIPAORCAMENTO <> 'F'
   data=data.filter(l=> (l.participaOrc||'') !== 'F');
   return data;
 }
@@ -522,8 +548,8 @@ function renderResumo(){
     kSaldo.classList.toggle('negative',saldo<0);
     document.getElementById('kpi-receitas').textContent=R$(rec);
     document.getElementById('kpi-despesas').textContent=R$(desp);
-    const di=(rDataIni.value? new Date(rDataIni.value): ini);
-    const df=(rDataFim.value? new Date(rDataFim.value): fim);
+    const di=(rDataIni.value? parseMaybeDate(rDataIni.value): ini);
+    const df=(rDataFim.value? parseMaybeDate(rDataFim.value): fim);
     document.getElementById('kpi-periodo').textContent=`Período: ${di.toLocaleDateString('pt-BR')} — ${df.toLocaleDateString('pt-BR')}`;
   }
 
@@ -567,10 +593,8 @@ function renderResumo(){
   });
 
   const labelsCat=Object.keys(catAgg);
-  const signedVals=labelsCat.map(k=>catAgg[k]);           // valores reais (com sinal no modo saldo)
-  const pieVals = (catMode==='net')
-      ? signedVals.map(v=>Math.abs(v))                    // fatias proporcionais ao módulo do saldo
-      : signedVals;                                       // despesas/receitas já são positivos
+  const signedVals=labelsCat.map(k=>catAgg[k]); // reais (com sinal no modo saldo)
+  const pieVals = (catMode==='net') ? signedVals.map(v=>Math.abs(v)) : signedVals;
 
   charts.cat?.destroy();
   charts.cat=new Chart(document.getElementById('chartCategorias'),{
@@ -648,7 +672,7 @@ function openTotalsModal(){
 
   const cats=Object.keys(totals);
   const totalAllForPct = (catMode==='net')
-      ? cats.reduce((s,k)=> s+Math.abs(totals[k]), 0) // % por módulo do saldo
+      ? cats.reduce((s,k)=> s+Math.abs(totals[k]), 0)
       : cats.reduce((s,k)=> s+totals[k], 0);
 
   tblTotalsBody.innerHTML = cats
@@ -664,7 +688,7 @@ function openTotalsModal(){
       </tr>`;
     }).join('');
 
-  const sumVal = cats.reduce((s,k)=> s + (catMode==='net'? totals[k] : totals[k]), 0);
+  const sumVal = cats.reduce((s,k)=> s + totals[k], 0);
   document.getElementById('ttlCount').textContent = data.length;
   ttlSum.textContent = R$(sumVal);
 
@@ -687,8 +711,15 @@ function applyFiltersLanc(){
   if(q) data=data.filter(l=> normalizeStr(l.description).includes(q)||normalizeStr(l.category).includes(q)||normalizeStr(l.account).includes(q));
   if(fConta.value) data=data.filter(l=> (l.account?.trim()||'Sem conta')===fConta.value);
   if(fTipo.value) data=data.filter(l=> l.type===fTipo.value);
-  if(fDataIni.value){ const di=new Date(fDataIni.value+'T00:00:00'); data=data.filter(l=> l.date>=di); }
-  if(fDataFim.value){ const df=new Date(fDataFim.value+'T23:59:59'); data=data.filter(l=> l.date<=df); }
+  if(fDataIni.value){
+    const di = parseMaybeDate(fDataIni.value);
+    data = data.filter(l=> l.date >= di);
+  }
+  if(fDataFim.value){
+    const df = parseMaybeDate(fDataFim.value);
+    df.setHours(23,59,59,999); // ? fim do dia local
+    data = data.filter(l=> l.date <= df);
+  }
   return data;
 }
 function renderTable(){
@@ -742,6 +773,9 @@ function exportCSV(){
     {date:monthsBack(1),amount:1500,signed:-1500,type:'debit',category:'Educação',description:'Curso',account:'Banco B',participaOrc:'T'},
     {date:monthsBack(0),amount:5000,signed:+5000,type:'credit',category:'Salário',description:'Salário',account:'Banco A',participaOrc:'T'},
     {date:monthsBack(0),amount:400,signed:-400,type:'debit',category:'Lazer',description:'Cinema/Shows',account:'Carteira',participaOrc:'T'},
+
+    /* exemplo do seu caso: 01/02/2025 deve ficar FORA se filtro até 31/01/2025 */
+    {date:new Date(2025,1,1),amount:123,signed:-123,type:'debit',category:'Teste Data',description:'01/02/2025',account:'Banco A',participaOrc:'T'},
   ];
   lancamentos=demo.sort((a,b)=>a.date-b.date);
   refreshAll();
